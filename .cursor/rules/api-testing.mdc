@@ -1,0 +1,128 @@
+---
+description: How we test the P2P API — the docs are the oracle, black-box only, own data per test, positive/negative/error per endpoint, schema checks, one tag, evidence labels.
+globs: tests/**
+alwaysApply: false
+---
+
+# P2P API testing
+
+## 1. Oracle
+
+`docs/API.md` and `/openapi.json` define what is right. When the API disagrees, keep the documented expectation and fail — never change the expectation to match the API; report it. What neither document says lives in `docs/QUESTIONS.md` as assumed: do not assert it until a human answers.
+
+```ts
+// ✅ GOOD — assert documented inactive_vendor_gate
+expect(res.status()).toBe(400);
+expect(body.rule).toBe('inactive_vendor_gate');
+
+// ❌ BAD — loosen the expectation because the API returned something else
+expect([400, 201]).toContain(res.status());
+```
+
+## 2. Black box
+
+Never read or change `src/`. Tests talk to HTTP only.
+
+```ts
+// ✅ GOOD
+await request.post('/purchase-orders', { data: { vendor_id: id, line_items: [...] } });
+
+// ❌ BAD
+import { createPo } from '../../src/store';
+```
+
+## 3. Requests
+
+Use Playwright's `request` fixture with paths only. Host comes from `baseURL`. Never hard-code a URL.
+
+```ts
+// ✅ GOOD
+await request.get('/vendors');
+
+// ❌ BAD
+await request.get('http://localhost:8000/vendors');
+```
+
+## 4. Data
+
+Every test creates what it needs — its own vendor when checking exposure, unique invoice numbers with `Date.now()`. Never call `/admin/reset` in a test. Never depend on another test's data, except inside one serial flow.
+
+```ts
+// ✅ GOOD
+const vendor = await request.post('/vendors', { data: { name: `Acme-${Date.now()}` } });
+const invNo = `INV-${Date.now()}`;
+
+// ❌ BAD
+await request.post('/admin/reset');
+const invNo = 'INV-1'; // shared / colliding
+```
+
+## 5. Per endpoint
+
+For each endpoint: positive (it works), negative (one invalid input, one change at a time → 400 `validation_error` or the business rule), errors (unknown id → 404).
+
+```ts
+// ✅ GOOD — GET /vendors/{id}/exposure unknown id
+test('unknown vendor exposure → 404', { tag: '@api' }, async ({ request }) => {
+  expect((await request.get('/vendors/vnd-missing/exposure')).status()).toBe(404);
+});
+
+// ❌ BAD — only happy path for POST /invoices, no negative or 404
+```
+
+## 6. Assertions
+
+Check the status; for every 400, the exact `rule`; the values that matter, not only that a field exists; the shape with `expectSchema` (P48). A 400 with the wrong rule is a failed test.
+
+```ts
+// ✅ GOOD
+expect(res.status()).toBe(400);
+expect(body.rule).toBe('overpayment_protection');
+expectSchema(body, ErrorSchema);
+
+// ❌ BAD
+expect(res.status()).toBe(400); // ignores wrong rule / no schema
+expect(body).toHaveProperty('detail');
+```
+
+## 7. Tags
+
+Exactly one tag per test: `{ tag: '@api' }` for one endpoint or `{ tag: '@e2e' }` for a flow. On `test()`, never on `describe()`.
+
+```ts
+// ✅ GOOD
+test('POST /vendors creates vendor', { tag: '@api' }, async ({ request }) => { ... });
+test('PO → invoice → approve', { tag: '@e2e' }, async ({ request }) => { ... });
+
+// ❌ BAD
+test.describe('vendors', { tag: '@api' }, () => { ... });
+test('flow', { tag: ['@api', '@e2e'] }, async () => { ... });
+```
+
+## 8. Known bugs
+
+A test for a confirmed bug keeps its assertions and gets `test.fail(true, 'BUG-<n>: <one line>')` — never deleted, never loosened.
+
+```ts
+// ✅ GOOD
+test('duplicate approve rejected', { tag: '@api' }, async ({ request }) => {
+  test.fail(true, 'BUG-3: second approve returns 200 instead of duplicate_approval');
+  expect(res.status()).toBe(400);
+  expect(body.rule).toBe('duplicate_approval');
+});
+
+// ❌ BAD — delete the test or expect(200) to “make CI green”
+```
+
+## 9. Evidence
+
+Label every claim `executed`, `inspected only`, or `not yet tested`.
+
+```ts
+// ✅ GOOD
+// executed — GET /health returns { status: "ok" }
+// inspected only — seed vendors listed in API.md
+// not yet tested — overpayment_protection at +$0.01
+
+// ❌ BAD — claim “all business rules covered” with no labels
+```
