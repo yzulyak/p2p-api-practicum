@@ -22,8 +22,15 @@ export default defineConfig({
       testMatch: 'reset.setup.ts',
     },
     {
-      name: 'api',
+      // Seed-only assertions (exact vendor/SKU counts) must run before other specs create data.
+      name: 'api-seed',
+      testMatch: 'vendors-and-catalog.spec.ts',
       dependencies: ['api-setup'],
+    },
+    {
+      name: 'api',
+      testIgnore: [/reset\.setup\.ts/, /vendors-and-catalog\.spec\.ts/],
+      dependencies: ['api-seed'],
     },
   ],
 });

@@ -343,6 +343,7 @@ test('INV-C-11 POST /invoices unit_price one cent over returns overpayment_prote
   request,
 }) => {
   // executed — total one cent over received value → overpayment_protection
+  test.fail(true, 'BUG-1: unit_price one cent over received value is accepted (201) instead of overpayment_protection');
   const po = await createFullyReceivedPo(request, [{ ...LUM_LINE }]);
 
   const response = await request.post('/invoices', {
@@ -415,6 +416,7 @@ test('INV-C-14 POST /invoices case-insensitive duplicate invoice_number', { tag:
   request,
 }) => {
   // executed — INV-7 then inv-7 → duplicate_invoice_detection
+  test.fail(true, 'BUG-2: case-only invoice_number variants both accepted instead of duplicate_invoice_detection');
   const po = await createFullyReceivedPo(request, [{ ...LUM_LINE }]);
   const base = `INV-7-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
@@ -443,6 +445,7 @@ test('INV-C-15 POST /invoices trimmed-space duplicate invoice_number', { tag: '@
   request,
 }) => {
   // executed — INV-7 then " INV-7 " → duplicate_invoice_detection
+  test.fail(true, 'BUG-2: surrounding-space invoice_number variants both accepted instead of duplicate_invoice_detection');
   const po = await createFullyReceivedPo(request, [{ ...LUM_LINE }]);
   const base = `INV-7-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
@@ -949,6 +952,30 @@ test('INV-M-02 POST /invoices/{invoiceId}/match sets partial_receipt true', { ta
     po_id: po.id,
     invoice_number: uniqueInvoiceNumber(),
     line_items: [{ sku: 'LUM-2X4-8', quantity: 5, unit_price: 4.75 }],
+  });
+
+  const response = await request.post(`/invoices/${invoice.id}/match`);
+  expect(response.status()).toBe(200);
+
+  const body = await response.json();
+  await expectSchema(request, body, 'MatchResult');
+  expect(body.matched).toBe(true);
+  expect(body.status).toBe('matched');
+  expect(body.partial_receipt).toBe(true);
+});
+
+test('INV-M-02b POST /invoices/{invoiceId}/match first line full second unpaid sets partial_receipt true', { tag: '@api' }, async ({
+  request,
+}) => {
+  // executed — LUM fully received, CEM still 0 → partial_receipt must be true
+  test.fail(true, 'BUG-3: match returns partial_receipt false when a later PO line is not fully received');
+  const po = await createSubmittedPo(request, [{ ...LUM_LINE }, { ...CEM_LINE }]);
+  await receivePo(request, po.id, [{ sku: 'LUM-2X4-8', quantity: 10 }]);
+
+  const { body: invoice } = await createInvoice(request, {
+    po_id: po.id,
+    invoice_number: uniqueInvoiceNumber(),
+    line_items: [{ sku: 'LUM-2X4-8', quantity: 10, unit_price: 4.75 }],
   });
 
   const response = await request.post(`/invoices/${invoice.id}/match`);

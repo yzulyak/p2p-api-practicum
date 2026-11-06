@@ -170,6 +170,7 @@ test('E2E-PR-04 invoice only what was received', { tag: '@e2e' }, async ({ reque
 
 test('E2E-PR-05 match with partial_receipt true', { tag: '@e2e' }, async ({ request }) => {
   // executed — PO not fully received → match sets partial_receipt true
+  test.fail(true, 'BUG-3: match returns partial_receipt false when a later PO line is not fully received');
   const response = await request.post(`/invoices/${invoiceId}/match`);
   expect(response.status()).toBe(200);
 
